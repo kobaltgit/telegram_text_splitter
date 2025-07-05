@@ -77,6 +77,42 @@ for i, chunk in enumerate(chunks):
 
 ```
 
+## Integration with chatgpt-md-converter
+
+This library works especially well in combination with chatgpt-md-converter , which converts Markdown into Telegram-compatible HTML. This allows you to safely split and then send formatted text messages via Telegram bots, without breaking Markdown structure or exceeding message length limits.
+
+Using both libraries together ensures:
+
+*   Reliable conversion to HTML understood by the Telegram Bot API
+*   Support for advanced Telegram-specific syntax like spoilers (||text||) and expandable blockquotes (**> text)
+*   Safe handling of code blocks, lists, nested styles, and more
+
+### ✅ Example Usage
+
+```python
+from telegram_text_splitter import split_markdown_into_chunks
+from chatgpt_md_converter import telegram_format
+
+# A long Markdown-formatted response from ChatGPT or another source
+long_markdown_text = """
+# Introduction
+This is a **Markdown** example that includes *italic*, __underlined__, and ~~strikethrough~~ text.
+||This is a spoiler||
+```
+Code block inside Markdown
+print("Hello, world!")
+
+```
+"""
+# Step 1: Split the Markdown into chunks suitable for Telegram
+chunks = split_markdown_into_chunks(long_markdown_text)
+
+# Step 2: Convert each chunk to Telegram-compatible HTML and send
+for chunk in chunks:
+    html_chunk = telegram_format(chunk)
+    print(html_chunk)  # Replace this with bot.send_message(...) using ParseMode.HTML
+```
+
 ## Contributing
 
 Contributions are welcome! Please follow these steps:
