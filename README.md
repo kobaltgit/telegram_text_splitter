@@ -79,7 +79,7 @@ for i, chunk in enumerate(chunks):
 
 ## Integration with chatgpt-md-converter
 
-This library works especially well in combination with chatgpt-md-converter , which converts Markdown into Telegram-compatible HTML. This allows you to safely split and then send formatted text messages via Telegram bots, without breaking Markdown structure or exceeding message length limits.
+This library works especially well in combination with [chatgpt-md-converter](https://github.com/Latand/formatter-chatgpt-telegram) , which converts Markdown into Telegram-compatible HTML. This allows you to safely split and then send formatted text messages via Telegram bots, without breaking Markdown structure or exceeding message length limits.
 
 Using both libraries together ensures:
 
