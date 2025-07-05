@@ -1,0 +1,13 @@
+venv/
+*.pyc
+__pycache__/
+*.pyo
+.venv/
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+.cursor/
