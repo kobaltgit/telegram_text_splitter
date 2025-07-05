@@ -11,3 +11,5 @@ build/
 .coverage
 htmlcov/
 .cursor/
+.pytest_cache/
+telegram_text_splitter.egg-info/
