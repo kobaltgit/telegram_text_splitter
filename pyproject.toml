@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "telegram-text-splitter" # Название вашего пакета (используйте дефисы вместо подчеркиваний для pip)
-version = "0.1.0" # Начальная версия пакета
+version = "0.1.1" # Начальная версия пакета
 authors = [
   { name="kobaltgit", email="kobaltmail@gmail.com" },
 ]
