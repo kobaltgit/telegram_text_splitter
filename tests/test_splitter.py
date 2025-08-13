@@ -43,10 +43,11 @@ def test_split_markdown_into_chunks_basic(sample_markdown_text):
     
     # Проверяем, что каждый чанк не превышает заданный лимит
     for i, chunk in enumerate(chunks):
-        assert len(chunk) <= TEST_CHUNK_SIZE, f"Чанк {i+1} превышает лимит {TEST_CHUNK_SIZE} символов."
         print(f"\n--- Чанк {i+1} ({len(chunk)} символов) ---")
         print(chunk)
         print("-" * 20)
+        assert len(chunk) <= TEST_CHUNK_SIZE, f"Чанк {i+1} превышает лимит {TEST_CHUNK_SIZE} символов."
+        
 
 def test_split_markdown_empty_string():
     """Тестирует функцию с пустой строкой."""
@@ -466,9 +467,10 @@ def function2():
     def test_smart_splitting_integration(self):
         """Test that smart splitting works correctly in the full chunking process."""
         # Create text with an oversized code block
-        large_code = "\n".join([f"def function_{i}():" for i in range(20)])
-        large_code += "\n" + "\n".join([f"    return 'this is line {i} of a very long function'" for i in range(20)])
-        
+        large_code = "\n".join([
+            f"def function_{i}():\n"
+            f"  return 'this is line {i} of a very long function'" for i in range(20)])
+
         text = f"Before text\n\n```python\n{large_code}\n```\n\nAfter text"
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=200)
@@ -511,6 +513,7 @@ def function2():
             # Check for smart splitting evidence
             for i, chunk in enumerate(chunks):
                 # All chunks should have balanced math delimiters
+                print(f"Checking chunk {i}: {chunk}")
                 assert chunk.count('$$') % 2 == 0, f"Chunk {i} has unbalanced display math"
         
         # Verify content preservation
@@ -607,7 +610,7 @@ End of document."""
         # Create a very long LaTeX formula with multiple lines
         formula_lines = []
         for i in range(30):
-            formula_lines.append(f"    \\frac{{d}}{{dx}}\\left(\\int_{{-{i}}}^{{+{i}}} f_{{i}}(t) dt \\right) = f_{{i}}({i}) - f_{{i}}(-{i})")
+            formula_lines.append(f"    \\frac{{d}}{{dx}}\\left(\\int_{{-{i}}}^{{+{i}}} f_{i}(t) dt \\right) = f_{{i}}({i}) - f_{{i}}(-{i})")
         
         formula_content = "\n".join(formula_lines)
         text = f"Mathematical derivation:\n\n$$\n{formula_content}\n$$\n\nConclusion follows."
@@ -633,8 +636,8 @@ End of document."""
         # Verify content preservation
         reconstructed = "".join(chunk.replace('$$\n$$\n', '') for chunk in chunks)
         for i in range(0, min(30, 5)):  # Check first 5 formulas
-            assert f"f_{{{i}}}(t)" in reconstructed
-            assert f"f_{{{i}}}({i})" in reconstructed
+            assert f"f_{i}(t)" in reconstructed
+            assert f"f_{{i}}({i})" in reconstructed
 
     def test_very_long_mixed_content(self):
         """Test very long document with mixed code, text, and LaTeX formulas."""
