@@ -1,14 +1,38 @@
 import logging
 import re
-from typing import List
+from typing import List, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
 # Safety limit (slightly below Telegram hard limit)
 TELEGRAM_MESSAGE_LIMIT = 4000
+# Precompile patterns for leading empty blocks
+compiled_patterns = [
+    # Fenced code block ```
+    re.compile(r"^[ \t\n\r]*```"),
+    # Display math $$
+    re.compile(r"^[ \t\n\r]*\$\$"),
+    # Bracket math \[
+    re.compile(r"^[ \t\n\r]*\\\["),
+    # Inline math $...$
+    re.compile(r"^[ \t\n\r]*\$\$"),  # assuming this meant two $ for empty inline math
+    # Inline code `...`
+    re.compile(r"^[ \t\n\r]*``"),
+]
+
+def positions(pattern, text):
+    return [m.start() for m in re.finditer(pattern, text)]
 
 
-def split_latex_equations(text: str, max_len: int, block_start: int, continuation_prefix: str, min_distance: int = 5) -> tuple[int, str]:
+def is_balanced(pattern: str, chunk: str) -> bool:
+    """
+    Robustly detect whether the current chunk is balanced according to given pattern.
+    """
+    fence_positions = positions(pattern, chunk)
+    return len(fence_positions) % 2 == 0
+
+
+def split_latex_equations(text: str, max_len: int, block_start: int, continuation_prefix: str, min_distance: int = 5) -> Tuple[int, str]:
     """
     Determine a smart split position for LaTeX equations, prioritizing:
       1) Newlines
@@ -22,7 +46,7 @@ def split_latex_equations(text: str, max_len: int, block_start: int, continuatio
     space_needed = len(continuation_prefix)
     target_pos = max_len - space_needed
 
-    # PRIORITY 1: Look for newlines (best place to split LaTeX)
+    # PRIORITY 1: Look for newlines (the best place to split LaTeX)
     newline_pos = text.rfind('\n', 0, target_pos)
     if newline_pos != -1 and newline_pos > block_start + min_distance:  # Don't split too close to start
         split_pos = newline_pos + 1  # Split after the newline
@@ -46,19 +70,8 @@ def split_latex_equations(text: str, max_len: int, block_start: int, continuatio
     return split_pos, continuation_prefix
 
 
-def _chunk_ends_with(chunk: str, marker: str) -> bool:
-    """
-    Robustly detect whether the current chunk ends with an open block that started
-    at the very beginning of the chunk. We consider it still "inside" if the last
-    occurrence of marker is at position 0.
-    """
-    try:
-        return chunk.rindex(marker) == 0
-    except ValueError:
-        return False
 
-
-def _handle_continuation(chunk: str, continuation_prefix: str | None, current_pending: str | None) -> tuple[str, str | None]:
+def _handle_continuation(chunk: str, continuation_prefix: Optional[str], current_pending: Optional[str]) -> Tuple[str, Optional[str]]:
     """
     Centralized handler for continuation logic.
     - chunk: current chunk text
@@ -76,22 +89,22 @@ def _handle_continuation(chunk: str, continuation_prefix: str | None, current_pe
         return chunk, pending_prefix
 
     if current_pending and not continuation_prefix:
-        # We were in a continuation but this chunk doesn't need smart splitting.
+        # We were in a continuation, but this chunk doesn't need smart splitting.
         # Check if we're actually at the natural end of the block.
         if current_pending.startswith("```"):
-            if _chunk_ends_with(chunk, "```"):
+            if not is_balanced(r"```", chunk):
                 chunk = chunk + _get_closing_delimiter(current_pending)
                 pending_prefix = current_pending
             else:
                 pending_prefix = None
         elif current_pending.startswith("$$"):
-            if _chunk_ends_with(chunk, "$$"):
+            if not is_balanced(r"\$\$", chunk):
                 chunk = chunk + _get_closing_delimiter(current_pending)
                 pending_prefix = current_pending
             else:
                 pending_prefix = None
         elif current_pending.startswith("\\["):
-            if _chunk_ends_with(chunk, "\\]"):
+            if not is_balanced(r"\\\\]", chunk):
                 chunk = chunk + _get_closing_delimiter(current_pending)
                 pending_prefix = current_pending
             else:
@@ -102,7 +115,38 @@ def _handle_continuation(chunk: str, continuation_prefix: str | None, current_pe
 
     return chunk, pending_prefix
 
-def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
+
+def _strip_leading_empty_blocks(
+    chunk: str,
+    continuation_prefix: Optional[str],
+    current_pending: Optional[str]
+) -> Tuple[str, Optional[str], Optional[str]]:
+    """
+    Remove the first leading empty code/LaTeX block from the chunk (if any),
+    even if the closing marker is missing. Leading whitespace and blank lines
+    before and inside the block are removed. Reset continuation_prefix if a block
+    is removed.
+
+    Args:
+        chunk: The text chunk to process.
+        continuation_prefix: Current continuation prefix.
+        current_pending: Pending continuation prefix from previous iteration.
+
+    Returns:
+        (chunk after removing first leading empty block, updated continuation_prefix, current_pending)
+    """
+    for cp in compiled_patterns:
+        m = cp.match(chunk)
+        if m:
+            # Remove the matched block + leading whitespace/newlines
+            chunk = chunk[m.end():]
+            continuation_prefix = None
+            current_pending = None
+            break  # Only remove the first leading empty block
+
+    return chunk, continuation_prefix, current_pending
+
+def find_safe_split(text: str, max_len: int) -> Tuple[int, Optional[str]]:
     """
     Find a safe split position in `text` not greater than max_len that does not
     break Markdown code fences (```), inline code (`...`), or LaTeX blocks:
@@ -110,7 +154,7 @@ def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
       - display math: $$ ... $$
       - bracketed: \\[ ... \\]
     
-    For very long blocks that can't fit in max_len, implements smart splitting:
+    For very long blocks that can't fit in max_len, implement smart splitting:
     - Code blocks: split at max_len-3, add ``` to close, next chunk starts with ```
     - LaTeX blocks: split at max_len-2 (for $$ or \\]) or max_len-1 (for $)
     
@@ -120,7 +164,7 @@ def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
     if len(text) <= max_len:
         return len(text), None
 
-    # Helper: choose initial candidate (prefer paragraph -> line -> space -> forced)
+    # Helper: choose an initial candidate (prefer paragraph -> line -> space -> forced)
     def initial_candidate(s: str, limit: int) -> int:
         """
         Return the best candidate split point based on different criteria.
@@ -173,11 +217,8 @@ def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
         if single_backtick_count % 2 == 1:
             return True
 
-        # If none of the above indicate "inside block", then prefix is safe
+        # If none of the above indicate "inside block", then a prefix is safe
         return False
-
-    def positions(pattern, text):
-        return [m.start() for m in re.finditer(pattern, text)]
     
     def find_new_line_position_from_end(text: str, target_pos: int, block_start: int, min_distance: int = 5) -> int:
         """
@@ -190,13 +231,13 @@ def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
         return target_pos
     
     # Helper: detect what type of block we're inside and where it started
-    def detect_block_context(prefix: str) -> tuple[str | None, int]:
+    def detect_block_context(prefix: str) -> Tuple[Optional[str], int]:
         """
         Detect if we're inside a block and return (block_type, start_pos).
-        block_type can be: 'code_fence', 'inline_code', 'display_math', 'bracket_math', 'inline_math'
+        Variable block_type can be: 'code_fence', 'inline_code', 'display_math', 'bracket_math', 'inline_math'
         Returns (None, -1) if not inside any block.
         """
-        # Check for code fence (last unclosed ```)
+        # Check for a code fence (last unclosed ```)
         fence_positions = positions(r"```", prefix)
         if len(fence_positions) % 2 == 1:  # Inside code fence
             return 'code_fence', fence_positions[-1]
@@ -218,7 +259,7 @@ def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
         backtick_positions = positions(r"(?<!`)`(?!`)", without_triple)
         if len(backtick_positions) % 2 == 1:  # Inside inline code
             # Find actual position in original text
-            actual_pos = prefix.rfind("`")
+            actual_pos = prefix.rfind(r"`")
             return 'inline_code', actual_pos
         
         # Check for inline math (last unclosed $)
@@ -226,13 +267,13 @@ def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
         dollar_positions = positions(r"(?<!\\)\$(?!\$)", without_double)
         if len(dollar_positions) % 2 == 1:  # Inside inline math
             # Find actual position in original text
-            actual_pos = prefix.rfind("$")
+            actual_pos = prefix.rfind(r"$")
             return 'inline_math', actual_pos
         # No block found
         return None, -1
 
     # Helper: implement smart splitting for oversized blocks
-    def smart_split_block(text: str, max_len: int, block_type: str, block_start: int) -> tuple[int, str]:
+    def smart_split_block(text: str, max_len: int, block_type: str, block_start: int) -> Tuple[int, Optional[str]]:
         """
         Implement smart splitting for blocks that are too large.
         Returns (split_position, continuation_prefix).
@@ -275,13 +316,13 @@ def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
     # Start with an initial candidate
     candidate = initial_candidate(text, max_len)
 
-    # If candidate would split inside a code/math block, try to roll back to safe boundary
+    # If a candidate split inside a code/math block, try to roll back to safe boundary
     if unsafe_at(text[:candidate]):
-        # First try rolling back to safe boundaries
+        # First, try rolling back to safe boundaries
         original_candidate = candidate
         while candidate > 0 and unsafe_at(text[:candidate]):
-            # Try to roll back to previous paragraph, line or space before current candidate
-            prev_paragraph = text.rfind("\n\n", 0, candidate - 1)
+            # Try to roll back to the previous paragraph, line or space before a current candidate
+            prev_paragraph = text.rfind(r"\n\n", 0, candidate - 1)
             if prev_paragraph != -1:
                 candidate = min(prev_paragraph + 2, max_len - 1)
                 continue
@@ -310,7 +351,7 @@ def find_safe_split(text: str, max_len: int) -> tuple[int, str | None]:
             # If it's just slightly over, prefer rollback; if much larger, use smart split
             if block_start >= 0:
                 # Use smart splitting for any block that we can't safely roll back from
-                logger.info(f"Large {block_type} block detected, using smart splitting")
+                logger.debug(f"Large {block_type} block detected, using smart splitting")
                 split_pos, continuation = smart_split_block(text, max_len, block_type, block_start)
                 return split_pos, continuation
         
@@ -358,7 +399,6 @@ def split_markdown_into_chunks(text: str, max_chunk_size: int = TELEGRAM_MESSAGE
         
         # Handle continuation logic in a shared helper
         chunk, pending_prefix = _handle_continuation(chunk, continuation_prefix, current_pending)
-        
         chunks.append(chunk)
         
         # Only strip whitespace if we're not in a continuation (smart split)
@@ -369,8 +409,12 @@ def split_markdown_into_chunks(text: str, max_chunk_size: int = TELEGRAM_MESSAGE
         else:
             # Normal split - can safely remove leading whitespace/newlines
             remaining = remaining[split_pos:].lstrip("\n ")
-    
-    logger.info(f"Markdown text split into {len(chunks)} chunks.")
+        # As a last step, if a split left an empty block opener/closer at the
+        # beginning of this chunk, strip it to avoid empty code/LaTeX blocks.
+        if len(remaining) < max_chunk_size and (continuation_prefix or current_pending):
+            remaining, continuation_prefix, pending_prefix = _strip_leading_empty_blocks(remaining, continuation_prefix, pending_prefix)
+
+    logger.debug(f"Markdown text split into {len(chunks)} chunks.")
     return chunks
 
 

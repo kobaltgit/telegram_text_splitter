@@ -1,5 +1,5 @@
 import pytest
-import logging
+import re
 
 # Импортируем функции, которые будем тестировать
 from telegram_text_splitter import split_markdown_into_chunks
@@ -16,23 +16,23 @@ TEST_CHUNK_SIZE = 100 # Маленький размер для демонстр�
 def sample_markdown_text():
     """Предоставляет длинный Markdown текст для тестирования."""
     return """
-# Пример текста для разбиения
-
-Это первый абзац. Он содержит несколько строк и должен быть разделен.
-
-## Второй раздел
-
-*   Пункт списка 1
-*   Пункт списка 2
-    *   Вложенный пункт 2.1
-    *   Вложенный пункт 2.2
-
-Это абзац с очень длинным словом, которое может вызвать проблемы при разбивке: AntidisestablishmentarianismAntidisestablishmentarianismAntidisestablishmentarianismAntidisestablishmentarianismAntidisestablishmentarianismAntidisestablishmentarianism.
-
----
-
-Конец документа.
-"""
+    # Пример текста для разбиения
+    
+    Это первый абзац. Он содержит несколько строк и должен быть разделен.
+    
+    ## Второй раздел
+    
+    *   Пункт списка 1
+    *   Пункт списка 2
+        *   Вложенный пункт 2.1
+        *   Вложенный пункт 2.2
+    
+    Это абзац с очень длинным словом, которое может вызвать проблемы при разбивке: AntidisestablishmentarianismAntidisestablishmentarianismAntidisestablishmentarianismAntidisestablishmentarianismAntidisestablishmentarianismAntidisestablishmentarianism.
+    
+    ---
+    
+    Конец документа.
+    """
 
 def test_split_markdown_into_chunks_basic(sample_markdown_text):
     """Тестирует базовое разбиение текста на чанки."""
@@ -106,21 +106,20 @@ class TestFindSafeSplit:
         """Test that code fences are not broken."""
         text = """This is text before.
 
-```python
-def example():
-    return "code"
-```
-
-This is text after."""
+        ```python
+        def example():
+            return "code"
+        ```
+        
+        This is text after."""
         
         # Try to split in the middle of the code block
         result, continuation = find_safe_split(text, 50)  # This would normally cut inside the code block
         
         # Verify the split doesn't break the code fence
         prefix = text[:result]
-        fence_count = len([m for m in prefix.split('```') if m]) - 1
-        # Should have even number of fences (complete pairs) or be before the first fence
-        assert prefix.count('```') % 2 == 0, f"Code fence broken at position {result}"
+        fence_count = len(re.findall(r"```", prefix))
+        assert fence_count % 2 == 0, f"Code fence broken at position {result}"
 
     def test_inline_code_protection(self):
         """Test that inline code with backticks is not broken."""
@@ -179,20 +178,20 @@ This is text after."""
         """Test handling of multiple code blocks."""
         text = """First paragraph.
 
-```python
-def func1():
-    pass
-```
-
-Middle paragraph.
-
-```javascript
-function func2() {
-    return true;
-}
-```
-
-Last paragraph."""
+        ```python
+        def func1():
+            pass
+        ```
+        
+        Middle paragraph.
+        
+        ```javascript
+        function func2() {
+            return true;
+        }
+        ```
+        
+        Last paragraph."""
         
         result, continuation = find_safe_split(text, 80)
         prefix = text[:result]
@@ -288,14 +287,14 @@ class TestMarkdownChunkingSafety:
         """Test that code fences are not split when possible."""
         text = """# Header
 
-Some text before the code.
-
-```python
-def example():
-    return "short"
-```
-
-More text after the code block."""
+        Some text before the code.
+        
+        ```python
+        def example():
+            return "short"
+        ```
+        
+        More text after the code block."""
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=200)  # Larger size to accommodate the block
         
@@ -335,33 +334,33 @@ More text after the code block."""
         """Test a complex document with mixed content."""
         text = """# Mathematical Programming
 
-## Introduction
-
-Here's some `inline code` and a math formula $x^2 + y^2 = z^2$.
-
-```python
-def calculate_distance(x1, y1, x2, y2):
-    return math.sqrt((x2-x1)**2 + (y2-y1)**2)
-```
-
-The distance formula in display math:
-
-$$d = \\sqrt{(x_2-x_1)^2 + (y_2-y_1)^2}$$
-
-More text with `another code snippet` continues here.
-
-### Code Example
-
-```javascript
-function factorial(n) {
-    if (n <= 1) return 1;
-    return n * factorial(n - 1);
-}
-```
-
-And finally some bracket math: \\[\\sum_{i=1}^n i = \\frac{n(n+1)}{2}\\]
-
-The end."""
+        ## Introduction
+        
+        Here's some `inline code` and a math formula $x^2 + y^2 = z^2$.
+        
+        ```python
+        def calculate_distance(x1, y1, x2, y2):
+            return math.sqrt((x2-x1)**2 + (y2-y1)**2)
+        ```
+        
+        The distance formula in display math:
+        
+        $$d = \\sqrt{(x_2-x_1)^2 + (y_2-y_1)^2}$$
+        
+        More text with `another code snippet` continues here.
+        
+        ### Code Example
+        
+        ```javascript
+        function factorial(n) {
+            if (n <= 1) return 1;
+            return n * factorial(n - 1);
+        }
+        ```
+        
+        And finally some bracket math: \\[\\sum_{i=1}^n i = \\frac{n(n+1)}{2}\\]
+        
+        The end."""
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=150)
         
@@ -424,12 +423,12 @@ The end."""
         """Test that normal-sized blocks are kept intact."""
         text = """Normal text before.
 
-```python
-def small_function():
-    return True
-```
-
-Normal text after."""
+        ```python
+        def small_function():
+            return True
+        ```
+        
+        Normal text after."""
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=150)
         
@@ -443,15 +442,15 @@ Normal text after."""
         # Recreate the exact issue: text ending with partial fence
         text = """Some text before.
 
-```python
-def function1():
-    pass
-```
-another copy:
-```python
-def function2():
-    pass
-```"""
+        ```python
+        def function1():
+            pass
+        ```
+        another copy:
+        ```python
+        def function2():
+            pass
+        ```"""
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=100)
         
@@ -469,25 +468,23 @@ def function2():
         # Create text with an oversized code block
         large_code = "\n".join([
             f"def function_{i}():\n"
-            f"  return 'this is line {i} of a very long function'" for i in range(20)])
+            f"  return 'this is line {i} of a very long function'"
+            for i in range(20)
+        ])
 
         text = f"Before text\n\n```python\n{large_code}\n```\n\nAfter text"
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=200)
         for i, chunk in enumerate(chunks):
             print(f"Chunk {i}: {chunk}")
-        
+
         # Should produce multiple chunks
         assert len(chunks) >= 2
         
         # Check if any chunks show evidence of smart splitting (ending with ```)
-        has_smart_split = False
         for i, chunk in enumerate(chunks):
-            if chunk.endswith("```") and i < len(chunks) - 1:  # Not the last chunk
-                has_smart_split = True
-                # Next chunk should start with ```
-                next_chunk = chunks[i + 1]
-                assert next_chunk.startswith("```"), f"Chunk {i+1} should start with ``` after smart split"
+            if 0 < i < len(chunks) - 1:  # Not the last chunk
+                assert chunk.startswith("```") and chunk.endswith("```") , f"Chunk {i+1} should start with ``` after smart split"
         
         # Verify all chunks are safe (no unbalanced delimiters)
         for i, chunk in enumerate(chunks):
@@ -529,24 +526,24 @@ class TestComprehensiveSmartSplitting:
         """Test a mix of LaTeX, text, and code blocks."""
         text = """# Mathematical Programming
 
-Here's inline math $E = mc^2$ and display math:
-
-$$\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$$
-
-Some explanatory text between formulas and code.
-
-```python
-def fibonacci(n):
-    if n <= 1:
-        return n
-    return fibonacci(n-1) + fibonacci(n-2)
-```
-
-More text with another formula:
-
-$$\\int_0^1 x^2 dx = \\frac{1}{3}$$
-
-End of document."""
+        Here's inline math $E = mc^2$ and display math:
+        
+        $$\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$$
+        
+        Some explanatory text between formulas and code.
+        
+        ```python
+        def fibonacci(n):
+            if n <= 1:
+                return n
+            return fibonacci(n-1) + fibonacci(n-2)
+        ```
+        
+        More text with another formula:
+        
+        $$\\int_0^1 x^2 dx = \\frac{1}{3}$$
+        
+        End of document."""
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=200)
         
@@ -708,14 +705,14 @@ End of document."""
         # Create LaTeX with operators and newlines
         text = """Mathematical proof:
 
-$$
-First line with addition: a + b = c
-Second line with subtraction: x - y = z
-Third line with multiplication: p * q = r
-Fourth line with division: m / n = k
-$$
-
-End of proof."""
+        $$
+        First line with addition: a + b = c
+        Second line with subtraction: x - y = z
+        Third line with multiplication: p * q = r
+        Fourth line with division: m / n = k
+        $$
+        
+        End of proof."""
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=120)
         
@@ -738,19 +735,19 @@ End of proof."""
         """Test that no meaningful symbols are lost during splitting (except whitespace)."""
         original_text = """# Test Document
 
-Inline math: $\\alpha + \\beta = \\gamma$ and more text.
-
-Display math:
-$$\\int_0^1 x^2 dx = \\frac{1}{3} + \\sum_{n=1}^\\infty \\frac{1}{n^2}$$
-
-Code example:
-```python
-def test_function(x, y):
-    result = x + y * 2 - 1
-    return result ** 2
-```
-
-More text with special symbols: @#$%^&*()_+-=[]{}|;:,.<>?/~`"""
+        Inline math: $\\alpha + \\beta = \\gamma$ and more text.
+        
+        Display math:
+        $$\\int_0^1 x^2 dx = \\frac{1}{3} + \\sum_{n=1}^\\infty \\frac{1}{n^2}$$
+        
+        Code example:
+        ```python
+        def test_function(x, y):
+            result = x + y * 2 - 1
+            return result ** 2
+        ```
+        
+        More text with special symbols: @#$%^&*()_+-=[]{}|;:,.<>?/~`"""
         
         chunks = split_markdown_into_chunks(original_text, max_chunk_size=150)
         
@@ -793,9 +790,9 @@ More text with special symbols: @#$%^&*()_+-=[]{}|;:,.<>?/~`"""
     result_c = result_b ** 2 + 1
     return result_c
 
-def another_function():
-    value = 100 - 50 + 25
-    return value * 2"""
+    def another_function():
+        value = 100 - 50 + 25
+        return value * 2"""
         
         text = f"Code example:\n\n```python\n{code_content}\n```\n\nEnd of code."
         
@@ -841,24 +838,24 @@ def another_function():
         """Comprehensive test ensuring all delimiter types remain balanced."""
         text = """# All Delimiter Types
 
-Inline code: `variable = value` and more.
-
-Fenced code:
-```javascript
-function test() {
-    return x + y;
-}
-```
-
-Inline math: $x^2 + y^2 = z^2$ continues.
-
-Display math:
-$$\\sum_{i=1}^n i = \\frac{n(n+1)}{2}$$
-
-Bracket math:
-\\[\\int_a^b f(x) dx = F(b) - F(a)\\]
-
-Mixed content with multiple blocks."""
+        Inline code: `variable = value` and more.
+        
+        Fenced code:
+        ```javascript
+        function test() {
+            return x + y;
+        }
+        ```
+        
+        Inline math: $x^2 + y^2 = z^2$ continues.
+        
+        Display math:
+        $$\\sum_{i=1}^n i = \\frac{n(n+1)}{2}$$
+        
+        Bracket math:
+        \\[\\int_a^b f(x) dx = F(b) - F(a)\\]
+        
+        Mixed content with multiple blocks."""
         
         chunks = split_markdown_into_chunks(text, max_chunk_size=120)
         
